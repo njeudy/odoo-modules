@@ -7,11 +7,12 @@ odoo.define('document_gdrive.menu_item', function(require) {
     "use strict";
 
     var core = require('web.core');
-    var Model = require('web.DataModel');
     var Sidebar = require('web.Sidebar');
     var Dialog = require('web.Dialog');
     var ActionManager = require('web.ActionManager');
     var utils = require('web.utils');
+    var rpc = require('web.rpc');
+    var Context = require('web.Context');
 
     var _t = core._t;
     var QWeb = core.qweb;
@@ -40,8 +41,12 @@ odoo.define('document_gdrive.menu_item', function(require) {
         onAuthApiLoad: function() {
             //odoo.gdrive.oauthToken = utils.get_cookie('odoo.gdrive.oauthToken');
             if (!odoo.gdrive.oauthToken) {
-                var P = new Model('ir.config_parameter');
-                P.call('get_param', ['document.gdrive.client.id']).then(function(id) {
+                var self = this;
+                rpc.query({
+                  model: 'ir.config_parameter',
+                  method: 'get_param',
+                  args: ['document.gdrive.client.id'],
+            }).then(function(id) {
                     if (id) {
                         var clientId = id;
                         window.gapi.auth.authorize({
@@ -80,7 +85,7 @@ odoo.define('document_gdrive.menu_item', function(require) {
             }
         },
 
-        redraw: function() {
+        _redraw: function() {
             var self = this;
             this._super.apply(this, arguments);
             if(self.$el.find('.oe_sidebar_add_attachment').length > 0) {
@@ -107,7 +112,7 @@ odoo.define('document_gdrive.menu_item', function(require) {
             if (data[google.picker.Response.ACTION] == google.picker.Action.PICKED) {
                 var docs = data[google.picker.Response.DOCUMENTS]
                 var documents = [];
-                for (var i = 0; i < docs.length; i++) { 
+                for (var i = 0; i < docs.length; i++) {
                     var doc = docs[i];
                     documents.push({
                         name: doc[google.picker.Document.NAME],
@@ -132,16 +137,27 @@ odoo.define('document_gdrive.menu_item', function(require) {
         on_gdrive_doc: function() {
             var self = this;
             var view = self.getParent();
-            var ids = (view.fields_view.type != "form") ? view.groups.get_selection().ids : [view.datarecord.id];
-            var context = this.session.user_context;
+            // if (view.fields_view && view.fields_view.type === "form") {
+              var ids = [];
+              view.on("load_record", self, function (r) {
+                ids = [r.id];
+                debugger;
+                self.add_gdoc_items(view, r.id);
+              });
+            // }
+
+            // ? view.groups.get_selection().ids : [view.datarecord.id];
+            // var context = this.session.user_context;
             var callback = this.pickerCallback;
 
             if(!odoo.gdrive.oauthToken) {
                 this.onAuthApiLoad()
             }
-
-            var P = new Model('ir.config_parameter');
-            P.call('get_param', ['document.gdrive.upload.dir']).then(function(dir) {
+            rpc.query({
+              model: 'ir.config_parameter',
+              method: 'get_param',
+              args: ['document.gdrive.upload.dir'],
+        }).then(function(dir) {
                 if (odoo.gdrive.pickerApiLoaded && odoo.gdrive.oauthToken) {
                     var origin = window.location.protocol + '//' + window.location.host;
                     var picker = new google.picker.PickerBuilder().
@@ -154,11 +170,11 @@ odoo.define('document_gdrive.menu_item', function(require) {
                     setCallback(callback).
                     setOrigin(origin).
                     build();
-                    picker.context = new openerp.web.CompoundContext(context, {
+                    picker.context = {
                         'active_ids': ids,
                         'active_id': [ids[0]],
-                        'active_model': view.dataset.model,
-                    });
+                        'active_model': view.modelName,
+                    };
                     picker.view = view;
                     picker.setVisible(true);
                 }
